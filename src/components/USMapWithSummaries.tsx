@@ -1,6 +1,10 @@
 "use client";
 import React, { useState } from "react";
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
+// Type for geo object from react-simple-maps
+type GeoType = { id: string | number; rsmKey: string };
+const isGeoType = (g: unknown): g is GeoType =>
+  !!g && (typeof (g as any).id === 'string' || typeof (g as any).id === 'number') && typeof (g as any).rsmKey === 'string';
 
 // You can use a CDN topojson or add a local file for US states
 const geoUrl = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
@@ -13,9 +17,10 @@ const stateSummaries: Record<string, string> = {
   // ...
 };
 
+// FIPS codes must be string keys, not numbers
 const stateAbbr: Record<string, string> = {
-  6: "CA", 48: "TX", 36: "NY",  // FIPS to state abbr
-  // ...add all FIPS codes
+  "06": "CA", "48": "TX", "36": "NY",  // FIPS to state abbr (as string)
+  // ...add all FIPS codes as string keys
 };
 
 export default function USMapWithSummaries() {
@@ -24,16 +29,18 @@ export default function USMapWithSummaries() {
 
   return (
     <div className="relative w-full flex flex-col items-center">
-      <ComposableMap projection="geoAlbersUsa" width={800} height={500} style={{width: "100%", height: "auto"}}>
+      <ComposableMap projection="geoAlbersUsa" width={800} height={500} style={{ width: "100%", height: "auto" }}>
         <Geographies geography={geoUrl}>
           {({ geographies }) =>
-            geographies.map((geo) => {
-              const abbr = stateAbbr[geo.id as string];
+            (geographies as unknown[]).map((geo) => {
+              if (!isGeoType(geo)) return null;
+              const fips = String(geo.id).padStart(2, "0");
+              const abbr = stateAbbr[fips] || fips;
               return (
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
-                  onMouseEnter={e => {
+                  onMouseEnter={(e: React.MouseEvent<SVGPathElement, MouseEvent>) => {
                     setTooltip(stateSummaries[abbr] || "No summary available");
                     setTooltipPos({ x: e.clientX, y: e.clientY });
                   }}

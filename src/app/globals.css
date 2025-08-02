@@ -61,10 +61,12 @@
 
 @layer base {
   html, body, main {
-    height: 100vh;
+    /* Responsive: let content determine height, allow scrolling */
     min-height: 100vh;
-    max-height: 100vh;
-    overflow: hidden;
+    height: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   * {
     /* Removed global border to eliminate unwanted box borders */

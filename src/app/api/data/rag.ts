@@ -1,76 +1,61 @@
-export async function POST(req: NextRequest) {
-  // Clerk authentication
-  const auth = getAuth(req);
-  if (!auth.userId || !auth.sessionId || !auth.getToken) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const token = await auth.getToken();
-  if (!token) {
-    return NextResponse.json({ error: "No auth token" }, { status: 401 });
-  }
+import { NextResponse, NextRequest } from "next/server";
+import { GoogleAuth } from "google-auth-library";
+import fetch from "node-fetch";
 
-  // Accept ragEngine (corpus) and prompt from POST body
+const RAG_RESOURCE = "projects/opm2025-ai/locations/us-central1/ragCorpora/568579452955521200";
+const VERTEX_RAG_ENDPOINT = `https://us-central1-aiplatform.googleapis.com/v1/${RAG_RESOURCE}:query`;
+
+export async function POST(req: NextRequest) {
   let body: any = {};
   try {
     body = await req.json();
   } catch (e) {}
-  const ragEngine = body.ragEngine || body.corpus || "opmdata"; // default to opmdata
-  const prompt = body.prompt || "";
 
+  const prompt = body.prompt || "Summarize the most important OPM data relevant to the user's question, citing sources where possible.";
+  const userMessage = body.userMessage || "";
+
+  // Authenticate with Google
+  const auth = new GoogleAuth({
+    scopes: "https://www.googleapis.com/auth/cloud-platform",
+  });
+  const client = await auth.getClient();
+  const accessToken = await client.getAccessToken();
+
+  // Build the RAG query
+  const queryBody = {
+    query: `${prompt}\n\nUser question: ${userMessage}`,
+    // You can add more fields here if needed (e.g., topK, filters)
+  };
+
+  // Call Vertex AI RAG
+  const response = await fetch(VERTEX_RAG_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken.token || accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(queryBody),
+  });
+
+  let data;
   try {
-    // Forward request to backend with JWT, ragEngine, and prompt
-    const backendRes = await fetch(BACKEND_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        corpus: ragEngine,
-        prompt,
-        ...body, // pass through any other fields
-      }),
-    });
-    const data = await backendRes.json();
-    if (!backendRes.ok) {
-      return NextResponse.json({ error: data.error || "Backend error" }, { status: backendRes.status });
-    }
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Backend error" }, { status: 500 });
-  }
-}
-import { NextResponse, NextRequest } from "next/server";
-import { getAuth } from "@clerk/nextjs/server";
-
-const BACKEND_URL = "https://feddataai-backend-1001804234114.us-central1.run.app/api/data";
-
-export async function GET(req: NextRequest) {
-  // Clerk authentication
-  const auth = getAuth(req);
-  if (!auth.userId || !auth.sessionId || !auth.getToken) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const token = await auth.getToken();
-  if (!token) {
-    return NextResponse.json({ error: "No auth token" }, { status: 401 });
+    data = await response.json();
+  } catch (e) {
+    return NextResponse.json({ error: "Vertex AI RAG did not return valid JSON." }, { status: 500 });
   }
 
-  try {
-    // Forward request to backend with JWT
-    const backendRes = await fetch(BACKEND_URL, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-      },
-    });
-    if (!backendRes.ok) {
-      const err = await backendRes.text();
-      return NextResponse.json({ error: err || "Backend error" }, { status: backendRes.status });
-    }
-    const data = await backendRes.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Backend error" }, { status: 500 });
+  if (!response.ok) {
+    return NextResponse.json({ error: data.error || "Vertex AI RAG error." }, { status: response.status });
   }
+
+  // Return the RAG answer (adjust this based on actual Vertex AI RAG response structure)
+  return NextResponse.json({
+    message: {
+      id: `rag-ai-${Date.now()}`,
+      role: "ai",
+      content: data.result || data.answer || JSON.stringify(data),
+      timestamp: new Date().toISOString(),
+    },
+    raw: data,
+  });
 }
